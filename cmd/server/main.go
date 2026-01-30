@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/ast"
@@ -34,6 +36,36 @@ func generateKrokiURL(code string) string {
 }
 
 //
+// ブロックコード mermaid の内容を kroki を使って API に投げて画像を取得する
+// kroki 内部の generate.go 内では code の長さによって GET か POST かを判別してたけど、
+// POST だと処理が重くなるとかいうことは無いだろうから全部POSTにしちゃう
+//
+// 取得したデータは dataURL として表示するために base64 で返す
+//
+// エラー時は空文字列を返す
+// 何かエラーを返したとしてもHTML表示側としては何もすることはないので
+//
+// サーバ側のログとしてメッセージを出して置く
+//
+func getRenderedImage(code string) string {
+	client := kroki.New(kroki.Configuration {
+		URL:		"https://kroki.io",
+		Timeout:	time.Second * 10,
+	})
+
+	image, err := client.FromString(code, kroki.Mermaid, kroki.SVG)
+	if err != nil {
+		fmt.Printf("kroki.PostRequest() failed: %v", err)
+	}
+
+	// base64 encode
+	b64Image := base64.StdEncoding.EncodeToString([]byte(image))
+//	fmt.Printf("Returned string: %s\n", b64Image)
+
+	return b64Image
+}
+
+//
 // markdown 中に
 //
 // ```mermaid
@@ -48,8 +80,10 @@ func mermaidRenderHook(w io.Writer, node ast.Node, entering bool) (ast.WalkStatu
 		if string(code.Info) == "mermaid" {
 			// mermaid なら、 Kroki API に投げる
 			mermaidCode := string(code.Literal)
-			url := generateKrokiURL(mermaidCode)
-			fmt.Fprintf(w, `<img class="mermaid-image" src="%s" />`, url)
+			image := getRenderedImage(mermaidCode)
+			fmt.Fprintf(w, `<img class="mermaid-image" src="data:image/svg+xml;base64,%s" />`, image)
+//			url := generateKrokiURL(mermaidCode)
+//			fmt.Fprintf(w, `<img class="mermaid-image" src="%s" />`, url)
 			//fmt.Fprintf(w, `<img src="%s" />`, url)
 
 			// 自分で処理したと伝える
