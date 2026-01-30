@@ -1,4 +1,4 @@
-module github.com/mseidou/md_server
+module github.com/mseidou/mdview
 
 go 1.25.1
 
