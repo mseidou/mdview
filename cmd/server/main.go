@@ -113,7 +113,7 @@ func mermaidRenderHook(w io.Writer, node ast.Node, entering bool) (ast.WalkStatu
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	doc_root := os.Getenv("MD_DOC_ROOT")
+	doc_root := os.Getenv("MDVIEW_DOC_ROOT")
 	if doc_root == "" {
 		doc_root = "."
 //		fmt.Printf("Error: 環境変数 MD_DOC_ROOT が未定義")
@@ -177,8 +177,13 @@ func main() {
 	// キャッシュ初期化
 	cache = make(map[[32]byte]string)
 
+	port := os.Getenv("MDVIEW_PORT")
+	if port == "" {
+		port = "18080"
+	}
+
 	http.HandleFunc("/", handler)
-	log.Println("Serving on :18080")
-	log.Fatal(http.ListenAndServe(":18080", nil))
+	log.Printf("Serving on port %s", port)
+	log.Fatal(http.ListenAndServe(":" + port, nil))
 }
 
