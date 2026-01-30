@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -16,6 +17,12 @@ import (
 
 	"github.com/yuzutech/kroki-go"
 )
+
+//
+// コードブロック以外（普通のテキスト）を変更した場合でも毎度POSTするのは何かとお行儀が良くないので
+// メモリ上にキャッシュを保持しておいて、変更が入ったらPOSTして新しいものを取得する方式にする
+//
+var cache map[[32]byte]string
 
 //
 // kroki-go を使って mermaid 部分のテキストを zlib deflate -> base64 する
@@ -48,6 +55,14 @@ func generateKrokiURL(code string) string {
 // サーバ側のログとしてメッセージを出して置く
 //
 func getRenderedImage(code string) string {
+
+	// cache にあればそれを返却
+	sum := sha256.Sum256([]byte(code))
+	if v, ok := cache[sum]; ok {
+		return v
+	}
+
+	// なければ取得
 	client := kroki.New(kroki.Configuration {
 		URL:		"https://kroki.io",
 		Timeout:	time.Second * 10,
@@ -61,6 +76,9 @@ func getRenderedImage(code string) string {
 	// base64 encode
 	b64Image := base64.StdEncoding.EncodeToString([]byte(image))
 //	fmt.Printf("Returned string: %s\n", b64Image)
+
+	// cache に格納
+	cache[sum] = b64Image
 
 	return b64Image
 }
@@ -156,6 +174,9 @@ body { padding: 2em; }
 }
 
 func main() {
+	// キャッシュ初期化
+	cache = make(map[[32]byte]string)
+
 	http.HandleFunc("/", handler)
 	log.Println("Serving on :18080")
 	log.Fatal(http.ListenAndServe(":18080", nil))
