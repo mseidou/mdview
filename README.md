@@ -97,6 +97,9 @@ sequenceDiagram
 ```
 
 ## Change Log
+- 2026.02.02
+	- `MDVIEW_DOC_ROOT` を指定して Webブラウザで `http://<IP>:<PORT>/` のようにアクセスすると、FileServer() が働いて 304 を返してしまう不具合を修正
+	  これまでは `http://<IP>:<PORT>/README.md` という URL をWebブラウザでアクセスしながら `MDVIEW_DOC_ROOT` を変更して再起動とう流れにしていたため発覚しなかった模様
 - 2026.01.30
 	- kroki API へのアクセスは POST 方式にした
 	- キャッシュを導入して API へのアクセス回数低減を図るとともに、表示速度向上
