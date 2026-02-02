@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gomarkdown/markdown"
@@ -23,6 +24,10 @@ import (
 // メモリ上にキャッシュを保持しておいて、変更が入ったらPOSTして新しいものを取得する方式にする
 //
 var cache map[[32]byte]string
+
+type Mdview struct {
+	docRoot		string
+}
 
 //
 // kroki-go を使って mermaid 部分のテキストを zlib deflate -> base64 する
@@ -112,35 +117,27 @@ func mermaidRenderHook(w io.Writer, node ast.Node, entering bool) (ast.WalkStatu
 	return ast.GoToNext, false
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	doc_root := os.Getenv("MDVIEW_DOC_ROOT")
-	if doc_root == "" {
-		doc_root = "."
-//		fmt.Printf("Error: 環境変数 MD_DOC_ROOT が未定義")
-//		os.Exit(1)
+func (m *Mdview) markdownHandler(w http.ResponseWriter, r *http.Request) {
+
+	path := m.docRoot + r.URL.Path
+	fmt.Printf("Requested: %s\n", path)
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
 	}
-	// この時点では doc_root の存在チェックはしない
 
-	path := doc_root + r.URL.Path
-	if path[len(path)-3:] == ".md" {
-		fmt.Printf("Requested: %s\n", path)
-		data, err := ioutil.ReadFile(path)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
+	// mermaid 用レンダラー用意
+	opts := html.RendererOptions {
+		RenderNodeHook: mermaidRenderHook,
+	}
+	renderer := html.NewRenderer(opts)
 
-		// mermaid 用レンダラー用意
-		opts := html.RendererOptions {
-			RenderNodeHook: mermaidRenderHook,
-		}
-		renderer := html.NewRenderer(opts)
+	// 追加したいレンダラーは第三引数で渡す
+	html := markdown.ToHTML(data, nil, renderer)
+//	fmt.Printf("%s", html)
 
-		// 追加したいレンダラーは第三引数で渡す
-		html := markdown.ToHTML(data, nil, renderer)
-//		fmt.Printf("%s", html)
-
-		fullHTML := fmt.Sprintf(`
+	fullHTML := fmt.Sprintf(`
 <html>
 <head>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
@@ -165,25 +162,45 @@ body { padding: 2em; }
 </body>
 </html>`, html)
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(fullHTML))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(fullHTML))
+}
 
-	} else {
-		http.FileServer(http.Dir(".")).ServeHTTP(w, r)
+func (m *Mdview) routeHandler(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, ".md") {
+		m.markdownHandler(w, r)
+		return
 	}
+	// .md 以外は FileServer()
+
+	// FileServer() 辺りが 304 を返してしまい、ブラウザ側がキャッシュを見てしまうため
+	// docRoot を変更してもブラウザ上は変わらないという現象になってしまっていたので対応
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	http.FileServer(http.Dir(m.docRoot)).ServeHTTP(w, r)
 }
 
 func main() {
 	// キャッシュ初期化
 	cache = make(map[[32]byte]string)
+	mdview := &Mdview{}
 
 	port := os.Getenv("MDVIEW_PORT")
 	if port == "" {
 		port = "18080"
 	}
 
-	http.HandleFunc("/", handler)
+	mdview.docRoot = os.Getenv("MDVIEW_DOC_ROOT")
+	if mdview.docRoot == "" {
+		mdview.docRoot = "."
+	}
+	fmt.Printf("docRoot: %s\n", mdview.docRoot)
+
+	mux := http.NewServeMux()
+
+	// どの階層の *.md でも反応させるには、一旦 routeHandler に投げる
+	mux.HandleFunc("/", mdview.routeHandler)
+
 	log.Printf("Serving on port %s", port)
-	log.Fatal(http.ListenAndServe(":" + port, nil))
+	log.Fatal(http.ListenAndServe(":" + port, mux))
 }
 
